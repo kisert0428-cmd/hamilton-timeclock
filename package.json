@@ -1,0 +1,69 @@
+{
+  "name": "hamilton-timeclock",
+  "version": "1.0.0",
+  "description": "Secure warehouse time clock and weekly payroll for Hamilton Drywall Products",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "server": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "migrate": "tsx scripts/setup.ts",
+    "setup:admin": "tsx scripts/setup.ts --admin",
+    "test": "vitest run",
+    "dev:sample": "tsx scripts/sample.ts",
+    "dev:local": "tsx scripts/local.ts",
+    "backup": "bash scripts/backup.sh",
+    "format": "prettier --write src server scripts tests *.json *.ts *.html README.md",
+    "preview:layout": "npm run build && node scripts/preview-layout.mjs",
+    "launch": "tsx server/launch.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
+    "argon2": "^0.45.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.9",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "lucide-react": "^1.62.0",
+    "luxon": "^3.7.2",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/supertest": "^7.2.1",
+    "@vitejs/plugin-react": "^6.1.2",
+    "prettier": "^3.9.10",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

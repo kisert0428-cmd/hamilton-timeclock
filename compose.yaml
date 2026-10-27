@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: hamilton
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: hamilton
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - payroll-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hamilton"]
+      interval: 5s
+      retries: 10
+volumes:
+  payroll-data:
