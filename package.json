@@ -17,7 +17,7 @@
     "dev:sample": "tsx scripts/sample.ts",
     "dev:local": "tsx scripts/local.ts",
     "backup": "bash scripts/backup.sh",
-    "format": "prettier --write src server scripts tests *.json *.ts *.html README.md",
+    "format": "prettier --write src server scripts tests shared *.json *.ts *.html README.md",
     "preview:layout": "npm run build && node scripts/preview-layout.mjs",
     "launch": "tsx server/launch.ts"
   },

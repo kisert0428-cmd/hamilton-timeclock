@@ -1,3 +1,9 @@
+import {
+  punchTimeFields,
+  punchTimeChoices,
+  correctionTimePayload,
+  type Occurrence,
+} from "../shared/punch-time";
 import { readPunchLocation, locationLabels } from "./location";
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
@@ -1434,7 +1440,9 @@ function Corrections({ employee, onSave }: any) {
   const [data, setData] = useState<any>(null),
     [selected, setSelected] = useState<any>(null),
     [message, setMessage] = useState(""),
-    [stamp, setStamp] = useState(""),
+    [punchDate, setPunchDate] = useState(dateNY()),
+    [punchTime, setPunchTime] = useState(""),
+    [occurrence, setOccurrence] = useState<Occurrence | "">(""),
     [type, setType] = useState("in"),
     [busy, setBusy] = useState(false);
   const reload = () =>
@@ -1444,6 +1452,10 @@ function Corrections({ employee, onSave }: any) {
   useEffect(() => {
     reload();
   }, [employee.id]);
+  let choices: ReturnType<typeof punchTimeChoices> = [];
+  try {
+    choices = punchTimeChoices(punchDate, punchTime);
+  } catch {}
   return (
     <>
       <h2>Review & correct punches</h2>
@@ -1455,7 +1467,13 @@ function Corrections({ employee, onSave }: any) {
             const p = data?.punches.find((p: any) => p.id === e.target.value);
             setSelected(p || null);
             setType(p?.type || "in");
-            setStamp(p ? new Date(p.at).toISOString() : "");
+            const fields = p
+              ? punchTimeFields(p.at)
+              : { date: dateNY(), time: "", occurrence: undefined };
+            setPunchDate(fields.date);
+            setPunchTime(fields.time);
+            setOccurrence(fields.occurrence || "");
+            setMessage("");
           }}
         >
           <option value="">Add a missing punch</option>
@@ -1477,7 +1495,11 @@ function Corrections({ employee, onSave }: any) {
               employee_id: employee.id,
               punch_id: selected?.id,
               type,
-              at: stamp,
+              ...correctionTimePayload(selected?.at, {
+                date: punchDate,
+                time: punchTime,
+                occurrence: occurrence || undefined,
+              }),
               reason: b.reason,
             });
             setMessage("Correction saved. Audit history preserved.");
@@ -1500,19 +1522,58 @@ function Corrections({ employee, onSave }: any) {
             ))}
           </select>
         </label>
-        <label>
-          Exact timestamp with time zone
-          <input
-            required
-            value={stamp}
-            onChange={(e) => setStamp(e.target.value)}
-            placeholder="2026-10-27T08:00:00-04:00"
-          />
-        </label>
-        <small className="muted">
-          Use an explicit offset: -04:00 for EDT or -05:00 for EST. This
-          distinguishes repeated daylight saving hours.
+        <div className="form-grid">
+          <label>
+            Date
+            <input
+              type="date"
+              required
+              value={punchDate}
+              onChange={(e) => {
+                setPunchDate(e.target.value);
+                setOccurrence("");
+              }}
+            />
+          </label>
+          <label>
+            Time (AM/PM)
+            <input
+              type="text"
+              required
+              value={punchTime}
+              maxLength={20}
+              onChange={(e) => {
+                setPunchTime(e.target.value);
+                setOccurrence("");
+              }}
+              placeholder="09:00 AM or 6:07 PM"
+              autoComplete="off"
+              autoCapitalize="characters"
+              aria-describedby="punch-time-help"
+            />
+          </label>
+        </div>
+        <small id="punch-time-help" className="muted">
+          Enter 09:00 AM or 6:07 PM. All punch dates and times use New York
+          time.
         </small>
+        {choices.length > 1 && (
+          <label>
+            This time occurs twice when clocks move back
+            <select
+              required
+              value={occurrence}
+              onChange={(e) => setOccurrence(e.target.value as Occurrence)}
+            >
+              <option value="">Choose which occurrence</option>
+              {choices.map((c) => (
+                <option key={c.at} value={c.occurrence}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Correction reason
           <textarea

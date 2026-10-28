@@ -348,6 +348,99 @@ describe("API security and persistence", () => {
     );
     expect(rs.map((r) => r.status)).toEqual([200, 200]);
   });
+  it("adds and edits punches using AM/PM entry with audited UTC values", async () => {
+    const employee = randomUUID();
+    await db.query(
+      "INSERT INTO employees(id,employee_id,name,location,pin_hash,pin_lookup) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        employee,
+        "TIME-ENTRY",
+        "AMPM Test Employee",
+        "Warehouse",
+        await hash("test-only-password"),
+        lookup(employee),
+      ],
+    );
+    for (const [type, time] of [
+      ["in", "09:00 AM"],
+      ["out", "6:07 PM"],
+    ]) {
+      const r = await agent
+        .post("/api/corrections")
+        .set("Origin", origin)
+        .send({
+          employee_id: employee,
+          type,
+          date: "2026-10-26",
+          time,
+          reason: "Entered time from manager record",
+        });
+      expect(r.status).toBe(200);
+    }
+    const ps = (
+      await db.query(
+        "SELECT * FROM effective_punches WHERE employee_id=$1 ORDER BY at",
+        [employee],
+      )
+    ).rows;
+    expect(new Date(ps[0].at).toISOString()).toBe("2026-10-26T13:00:00.000Z");
+    expect(new Date(ps[1].at).toISOString()).toBe("2026-10-26T22:07:00.000Z");
+    const edit = await agent
+      .post("/api/corrections")
+      .set("Origin", origin)
+      .send({
+        employee_id: employee,
+        punch_id: ps[1].id,
+        type: "out",
+        date: "2026-10-26",
+        time: "6:08 PM",
+        reason: "Corrected handwritten finish time",
+      });
+    expect(edit.status).toBe(200);
+    expect(
+      new Date(
+        (
+          await db.query("SELECT at FROM effective_punches WHERE id=$1", [
+            ps[1].id,
+          ])
+        ).rows[0].at,
+      ).toISOString(),
+    ).toBe("2026-10-26T22:08:00.000Z");
+    expect(
+      new Date(
+        (await db.query("SELECT at FROM punches WHERE id=$1", [ps[1].id]))
+          .rows[0].at,
+      ).toISOString(),
+    ).toBe("2026-10-26T22:07:00.000Z");
+    for (const fields of [
+      { date: "2026-10-26", time: "18:07" },
+      { date: "2026-03-08", time: "02:30 AM" },
+      { date: "2025-11-02", time: "01:30 AM" },
+      { date: "2026-10-26", time: "6:07 PM", at: "2026-10-26T22:07:00Z" },
+    ]) {
+      expect(
+        (
+          await agent
+            .post("/api/corrections")
+            .set("Origin", origin)
+            .send({
+              employee_id: employee,
+              type: "in",
+              reason: "Invalid timestamp test",
+              ...fields,
+            })
+        ).status,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await db.query(
+          "SELECT c.* FROM corrections c JOIN punches p ON p.id=c.punch_id WHERE p.employee_id=$1",
+          [employee],
+        )
+      ).rows,
+    ).toHaveLength(3);
+  });
 });
 describe("location privacy policy", () => {
   const s = { latitude: 40, longitude: -74, radius_m: 91.44 };

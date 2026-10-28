@@ -1,3 +1,4 @@
+import { resolvePunchTime } from "../shared/punch-time.js";
 import { mountAdminSetup } from "./admin-setup.js";
 import express from "express";
 import helmet from "helmet";
@@ -239,15 +240,45 @@ export function createApp(db: any = pool, tx: any = transaction) {
     });
   });
   app.post("/api/corrections", admin, async (req: any, res) => {
-    const b = z
+    const input = z
       .object({
         employee_id: uuid,
         punch_id: uuid.optional(),
         type: punchType,
-        at: z.string().datetime({ offset: true }),
+        at: z.string().datetime({ offset: true }).optional(),
+        date: z.string().optional(),
+        time: z.string().optional(),
+        occurrence: z.enum(["earlier", "later"]).optional(),
         reason: z.string().trim().min(5).max(1000),
       })
       .parse(req.body);
+    let at: string;
+    if (input.at !== undefined) {
+      if (
+        input.date !== undefined ||
+        input.time !== undefined ||
+        input.occurrence !== undefined
+      )
+        throw fail(
+          "Provide either a recorded timestamp or a date and AM/PM time.",
+        );
+      at = input.at;
+    } else {
+      if (!input.date || !input.time)
+        throw fail(
+          "Choose a punch date and enter a time like 09:00 AM or 6:07 PM.",
+        );
+      try {
+        at = resolvePunchTime({
+          date: input.date,
+          time: input.time,
+          occurrence: input.occurrence,
+        });
+      } catch (e: any) {
+        throw fail(e.message);
+      }
+    }
+    const b = { ...input, at };
     if (new Date(b.at).getTime() > Date.now())
       throw fail("Punches cannot be in the future");
     await tx(async (c: any) => {
