@@ -13,7 +13,7 @@ A mobile-friendly React/TypeScript employee time clock with a Node/Express API, 
 - Required server-side warehouse verification, with a default 300-foot (91.44-meter) radius. One-shot GPS is requested only when punching; precise employee coordinates are discarded. Outside readings require explicit provisional submission. Unavailable or persistently poor readings are recorded provisionally for manager review. Individually registered and revocable kiosk devices bypass GPS.
 - PostgreSQL schema, tests, container build, backup script, and development-only sample employees.
 
-**Delivery status:** source and automated verification are local. No production database, HTTPS host, backups schedule, or administrator account has been provisioned yet. Complete the deployment steps below before staff use. The included local database is for development only and is explicitly blocked in production.
+**Delivery status:** the production application is live at https://hamilton-wall-systems-clock.onrender.com with managed PostgreSQL. HTTPS, database health, frontend assets, initial administrator setup availability, and protected management routes were verified on October 28, 2026. Create your first administrator at `/setup` using ADMIN_SETUP_TOKEN from your own Render service Environment page, then configure warehouse coordinates, register kiosks, and add employees. See `DEPLOYMENT.md` for the verified release. The local database remains development-only and is blocked in production.
 
 ## Prepared Render launch
 
