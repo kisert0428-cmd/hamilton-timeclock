@@ -6,7 +6,7 @@
 - Render web service: https://dashboard.render.com/web/srv-dbh0p6utlv9c73dj6bdg
 - Render database: https://dashboard.render.com/d/dpg-dbh0oputlv9c73dj5aeg-a
 
-Verified October 28, 2026. Render deployment `dep-dbh0p7etlv9c73dj6bv0` is live, running application source commit `2a91c518642c412b8454dd5ee1335763d122defd`. Later documentation-only commits do not require another application deployment.
+Verified October 28, 2026. The current Render deployment `dep-dbh36kcs728c73buofl0` is live, running application source commit `d6ed192289f585c39f217e224731c5ce6185fbc9`. This release adds a date picker and AM/PM time entry for manager punch additions and edits, with New York time conversion, daylight saving disambiguation, and preservation of unchanged recorded seconds. The initial launch was deployment `dep-dbh0p7etlv9c73dj6bv0`. Later documentation-only commits do not require another application deployment.
 
 The web service and managed PostgreSQL 17 database are in the confirmed My Workspace account in Virginia. The web service uses the 0.5c-512mb compute plan. The database uses 0.1c-256mb, 1 GB storage, and an empty external IP allow list. Credentials and initial setup keys are managed in Render environment variables, never this repository.
 
@@ -20,7 +20,7 @@ The web service and managed PostgreSQL 17 database are in the confirmed My Works
 - `/api/config` reports required geofencing, Monday workweek start, and America/New_York display.
 - Unauthenticated employee administration, Excel payroll export and location reviews reject access with HTTP 401.
 - A punch request without the configured same-site origin is rejected with HTTP 403 before recording a punch.
-- The application release passed all 42 automated tests before deployment, including first-administrator activation, payroll, location checks, kiosk trust, audited corrections and migrations.
+- The application release passed all 62 automated tests before deployment, including first-administrator activation, payroll, location checks, kiosk trust, audited corrections and migrations.
 
 These live checks do not create administrators, sample employees, production punches or other test payroll records. Real-device layout, GPS permission and kiosk checks remain part of warehouse onboarding.
 
