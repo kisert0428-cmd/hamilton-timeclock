@@ -92,6 +92,12 @@ beforeAll(async () => {
     "location@example.test",
     await hash("test-password-long-enough"),
   ]);
+  await pg.exec(
+    await readFile(
+      new URL("../migrations/003-auto-lunch.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   app = createApp(db, tx);
   manager = request.agent(app);
   await manager.post("/api/login").set("Origin", origin).send({

@@ -43,6 +43,12 @@ beforeAll(async () => {
       "utf8",
     ),
   );
+  await pg.exec(
+    await readFile(
+      new URL("../migrations/003-auto-lunch.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   app = createApp(db, tx);
 }, 30000);
 afterAll(async () => pg.close());
@@ -67,13 +73,11 @@ it("rejects missing/wrong keys, short passwords and cross-origin activation", as
   ).toBe(400);
   expect(
     (
-      await request(app)
-        .post("/api/setup")
-        .send({
-          email: "owner@example.test",
-          password: "long-password-for-tests",
-          setupToken,
-        })
+      await request(app).post("/api/setup").send({
+        email: "owner@example.test",
+        password: "long-password-for-tests",
+        setupToken,
+      })
     ).status,
   ).toBe(403);
   expect((await db.query("SELECT * FROM admins")).rows).toHaveLength(0);

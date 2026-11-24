@@ -27,6 +27,7 @@ export async function migrate(db: any = pool) {
     for (const [id, file] of [
       ["001", "./schema.sql"],
       ["002", "../migrations/002-location.sql"],
+      ["003", "../migrations/003-auto-lunch.sql"],
     ]) {
       if (
         !(await c.query("SELECT id FROM schema_migrations WHERE id=$1", [id]))

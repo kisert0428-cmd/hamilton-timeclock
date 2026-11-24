@@ -59,6 +59,12 @@ beforeAll(async () => {
       lookup("1234"),
     ],
   );
+  await pg.exec(
+    await readFile(
+      new URL("../migrations/003-auto-lunch.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   app = createApp(db, tx);
   agent = request.agent(app);
 }, 30000);
@@ -180,6 +186,8 @@ describe("API security and persistence", () => {
       "Punch corrections",
       "Location verification",
       "Location review audit",
+      "Lunch deductions",
+      "Lunch policy audit",
     ]);
     expect(b.getWorksheet("Weekly summary")!.getCell("B2").value).toBe(
       "Test Employee",

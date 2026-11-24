@@ -1,3 +1,4 @@
+import { lunchContext, mountLunch } from "./lunch.js";
 import { resolvePunchTime } from "../shared/punch-time.js";
 import { mountAdminSetup } from "./admin-setup.js";
 import express from "express";
@@ -125,6 +126,7 @@ export function createApp(db: any = pool, tx: any = transaction) {
   });
   mountAdminSetup(app, db, tx);
   mountLocation(app, db, tx, admin, cookie);
+  mountLunch(app, db, tx, admin);
   app.get("/api/employees", admin, async (_req, res) =>
     res.json(
       (
@@ -189,6 +191,7 @@ export function createApp(db: any = pool, tx: any = transaction) {
     res.json({ pin: p });
   });
   async function report(date: string) {
+    const ctx = await lunchContext(db);
     const settings = (await db.query("SELECT * FROM settings WHERE id=1"))
       .rows[0];
     const { from, to } = weekBounds(date, settings.workweek_start);
@@ -201,7 +204,11 @@ export function createApp(db: any = pool, tx: any = transaction) {
       await db.query("SELECT * FROM effective_punches ORDER BY at,id")
     ).rows;
     return {
-      settings,
+      settings: {
+        ...settings,
+        auto_lunch_enabled: ctx.policies.at(-1)?.enabled ?? false,
+        auto_lunch_effective_at: ctx.policies.at(-1)?.effective_at,
+      },
       from: from.toISODate(),
       to: to.minus({ days: 1 }).toISODate(),
       employees: employees.map((e: any) => ({
@@ -210,6 +217,9 @@ export function createApp(db: any = pool, tx: any = transaction) {
           punches.filter((p: any) => p.employee_id === e.id),
           date,
           settings.workweek_start,
+          Date.now(),
+          ctx.policies,
+          ctx.exceptions,
         ),
       })),
     };
@@ -224,7 +234,28 @@ export function createApp(db: any = pool, tx: any = transaction) {
   );
   app.get("/api/punches/:id", admin, async (req, res) => {
     const id = uuid.parse(req.params.id);
+    const ctx = await lunchContext(db);
+    const ps = (
+      await db.query(
+        "SELECT * FROM effective_punches WHERE employee_id=$1 ORDER BY at,id",
+        [id],
+      )
+    ).rows;
     res.json({
+      lunchShifts: analyze(
+        ps,
+        DateTime.now().setZone(ZONE).toISODate()!,
+        1,
+        Date.now(),
+        ctx.policies,
+        ctx.exceptions,
+      ).shifts.filter((s) => !s.open),
+      lunchAudit: (
+        await db.query(
+          "SELECT l.*,a.email FROM lunch_exceptions l JOIN admins a ON a.id=l.admin_id JOIN punches p ON p.id=l.clock_in_id WHERE p.employee_id=$1 ORDER BY l.at DESC",
+          [id],
+        )
+      ).rows,
       punches: (
         await db.query(
           "SELECT * FROM effective_punches WHERE employee_id=$1 ORDER BY at DESC",
@@ -395,6 +426,8 @@ export function createApp(db: any = pool, tx: any = transaction) {
       ["Weekly Total Hours", 22],
       ["Unpaid Lunch Hours", 22],
       ["Review Notes", 50],
+      ["Recorded Lunch Hours", 22],
+      ["Automatic Lunch Hours", 22],
     ].map(([header, width]) => ({
       header: String(header),
       width: Number(width),
@@ -409,6 +442,8 @@ export function createApp(db: any = pool, tx: any = transaction) {
       "Total Hours",
       "Unpaid Lunch Hours",
       "Review Notes",
+      "Recorded Lunch Hours",
+      "Automatic Lunch Hours",
     ].map((header) => ({ header, width: header === "Review Notes" ? 55 : 24 }));
     const fmt = (p: any) =>
       p
@@ -450,8 +485,10 @@ export function createApp(db: any = pool, tx: any = transaction) {
           e.regular,
           e.overtime,
           e.total,
-          day.lunch / 3600,
+          (day.lunch + day.autoLunch) / 3600,
           e.flags.join("; "),
+          day.lunch / 3600,
+          day.autoLunch / 3600,
         ]);
       }
       summary.addRow([
@@ -463,6 +500,8 @@ export function createApp(db: any = pool, tx: any = transaction) {
         e.total,
         e.lunch,
         e.flags.join("; "),
+        e.recordedLunch,
+        e.automaticLunch,
       ]);
     }
     const audit = book.addWorksheet("Punch corrections");
@@ -550,6 +589,66 @@ export function createApp(db: any = pool, tx: any = transaction) {
         review.email,
         review.reason,
         new Date(review.at).toISOString(),
+      ]);
+    const lunchSheet = book.addWorksheet("Lunch deductions");
+    lunchSheet.columns = [
+      "Employee ID",
+      "Employee Name",
+      "Clock In (Eastern)",
+      "Clock Out (Eastern)",
+      "Shift Hours",
+      "Recorded Lunch Hours",
+      "Automatic Lunch Hours",
+      "Waived",
+      "Policy ID",
+    ].map((header) => ({ header, width: 27 }));
+    for (const e of r.employees)
+      for (const shift of e.shifts) {
+        if (
+          shift.open ||
+          instant(shift.punches[0].at) >= week.to.toMillis() ||
+          instant(shift.punches.at(-1).at) <= week.from.toMillis()
+        )
+          continue;
+        lunchSheet.addRow([
+          e.employee_id,
+          e.name,
+          fmt(shift.punches[0]),
+          fmt(shift.punches.at(-1)),
+          shift.elapsedSeconds / 3600,
+          shift.recordedLunchSeconds / 3600,
+          shift.automaticLunchSeconds / 3600,
+          shift.lunchWaived ? "Yes" : "No",
+          shift.lunchPolicyId || "No automatic policy",
+        ]);
+      }
+    const lunchAudit = book.addWorksheet("Lunch policy audit");
+    lunchAudit.columns = [
+      "Record Type",
+      "Shift or Policy ID",
+      "Enabled or Waived",
+      "Effective / Changed UTC",
+      "Administrator",
+      "Reason",
+    ].map((header) => ({ header, width: 32 }));
+    const lunchCtx = await lunchContext(db);
+    for (const p of lunchCtx.policies)
+      lunchAudit.addRow([
+        "Policy",
+        p.id,
+        p.enabled ? "Enabled" : "Disabled",
+        new Date(p.effective_at).toISOString(),
+        p.email || "Requested deployment policy",
+        p.reason,
+      ]);
+    for (const e of lunchCtx.exceptions)
+      lunchAudit.addRow([
+        "Shift exception",
+        e.clock_in_id,
+        e.waived ? "Waived" : "Restored",
+        new Date(e.at).toISOString(),
+        e.email,
+        e.reason,
       ]);
     for (const sh of book.worksheets) {
       sh.views = [{ state: "frozen", ySplit: 1 }];

@@ -9,7 +9,7 @@ A mobile-friendly React/TypeScript employee time clock with a Node/Express API, 
 - Administrator login, attendance, configurable weekly timesheets, employee activation, location assignment, missing-punch additions and corrections with required reason.
 - Database transactions and per-employee row locks serialize simultaneous punches. Atomic database rate limits work across server instances. All mutations require the configured same-site Origin.
 - UTC timestamps from PostgreSQL; America/New_York display; elapsed-time arithmetic handles overnight shifts, DST, midnight, and week boundaries.
-- XLSX daily detail, weekly summary, correction audit, location verification and location review audit worksheets; multiple shifts and lunches retained in detail cells.
+- XLSX daily detail, weekly summary, correction audit, location verification, location review audit, lunch deductions and lunch policy audit worksheets; multiple shifts and lunches retained in detail cells.
 - Required server-side warehouse verification, with a default 300-foot (91.44-meter) radius. One-shot GPS is requested only when punching; precise employee coordinates are discarded. Outside readings require explicit provisional submission. Unavailable or persistently poor readings are recorded provisionally for manager review. Individually registered and revocable kiosk devices bypass GPS.
 - PostgreSQL schema, tests, container build, backup script, and development-only sample employees.
 
@@ -152,17 +152,34 @@ Sessions expire after eight hours and use HttpOnly, SameSite=Strict cookies; Sec
 3. **Weekly timesheets:** Select any date in the desired workweek. The week defaults to Monday–Sunday. Hours are displayed to two decimals for readability; calculations and Excel numeric values retain full precision. Click an employee to review punches.
 4. **Corrections:** Select a punch or add a missing punch. Choose the punch date and enter a time such as `09:00 AM` or `6:07 PM`. Dates and times are interpreted in America/New_York on the server. During the repeated fall daylight saving hour, choose the first or second occurrence; times skipped by the spring transition are rejected. Leaving an existing date/time unchanged preserves its exact recorded seconds. Require a specific correction reason. Add missing records in chronological order; the full corrected sequence must remain valid. Original database punches are immutable through the API, and every edit retains its previous effective value, corrected value, administrator, reason, and UTC correction time. Added punches retain their manager/reason in the punch record.
 5. **Payroll export:** Download weekly payroll. Check all review notes before paying. Detail contains one employee/date row, with multi-line punch cells for multiple shifts/breaks, daily worked/lunch hours, and weekly totals. Weekly totals repeat on each detail row for context; **do not sum those repeated weekly columns**. Use the separate Weekly summary worksheet for payroll totals. Punch cells include full local dates and offsets; overnight shifts can appear on both affected daily rows. The correction worksheet contains correction history across all weeks for traceability.
-6. **Settings:** Configure required warehouse coordinates and radius (in feet), workweek start, or long-shift threshold. Location verification cannot be disabled through settings. Changing workweek start recalculates historical report boundaries; coordinate policy changes with payroll.
+6. **Settings:** Manage the automatic 30-minute lunch policy with a required change reason; changes apply to new shifts. Configure required warehouse coordinates and radius (in feet), workweek start, or long-shift threshold. Location verification cannot be disabled through settings. Changing workweek start recalculates historical report boundaries; coordinate policy changes with payroll.
 
 ## Payroll policy and incomplete shifts
 
-Worked time is the exact elapsed time between clock-in/lunch-in and the next lunch-out/clock-out. Only actual recorded lunch-out/lunch-in intervals are counted as unpaid lunch. Multiple breaks are allowed. Clocking out while still on lunch is rejected so a manager can correct the missing lunch-in.
+Worked time is the exact elapsed time between clock-in/lunch-in and the next lunch-out/clock-out. Recorded lunch-out/lunch-in intervals are unpaid. The automatic policy below can add a separately reported adjustment. Multiple breaks are allowed. Clocking out while still on lunch is rejected so a manager can correct the missing lunch-in.
 
-Every recorded work interval is split at America/New_York midnight. Weekly regular hours are capped at 40; additional actual worked hours are overtime. Overnight and workweek-crossing intervals are allocated to the day/week in which time occurred. No per-punch rounding or automatic lunch deductions are implemented. No other lunch policy is configured by default.
+Every recorded work interval is split at America/New_York midnight. Weekly regular hours are capped at 40 payable hours; additional payable hours are overtime. Overnight and workweek-crossing intervals are allocated to the day/week in which time occurred. No per-punch rounding is applied.
 
 Unfinished intervals are excluded from payroll totals; already completed work intervals on an unfinished shift remain included and the shift is flagged. Attendance shows live elapsed time for open work intervals. **Always review incomplete shifts before final payroll.** No shift is auto-closed or worked time erased. Unusually long **closed** shifts should also be manually reviewed; the dashboard's automatic threshold warning applies to open shifts.
 
 Location status is a review signal, not an anti-fraud guarantee. Smartphone coordinates may be inaccurate or spoofed. Unique four-digit PINs are intentionally simple and must be kept private; do not treat them as strong identity proof.
+
+### Automatic 30-minute lunch (completed shifts of 6+ hours)
+
+Migration `003-auto-lunch.sql` enables the explicitly requested policy for **new shifts starting at or after activation**. Previously started shifts and older payroll are not changed. Eligibility uses exact elapsed clock-in to clock-out time, including any recorded break, with an inclusive six-hour threshold. Each eligible completed shift has a minimum of 30 minutes total unpaid lunch:
+
+- No recorded lunch: 30 minutes automatically deducted.
+- 10-minute recorded lunch: 20 additional minutes automatically deducted.
+- 20-minute recorded lunch: 10 additional minutes automatically deducted.
+- Recorded lunch of 30 minutes or longer: no additional automatic deduction.
+- Short shifts, open shifts, or incomplete lunch sequences: no automatic deduction.
+- Two separate short shifts are evaluated separately; their hours are not combined to trigger a deduction.
+
+The adjustment is applied to the final recorded work intervals, splitting at New York midnight and workweek boundaries when necessary. Original punches and recorded lunch intervals remain intact. Attendance for completed shifts, daily/weekly payable totals, regular/overtime totals and Excel export use the adjusted hours. Recorded and automatic lunch are shown separately in the dashboard and workbook. **Lunch deductions** lists shift details; **Lunch policy audit** contains policy changes and manager overrides. Review notes for incomplete/location issues remain in effect.
+
+In **Settings → Automatic 30-minute lunch**, managers can enable or disable the policy with a required reason. Changes are prospective from their server-recorded activation time and are retained as separate policy versions. A shift continues to use the policy effective at its clock-in time, so disabling the setting does not silently recalculate old payroll.
+
+If an employee worked through lunch, open that employee's punch review and use **Remove automatic deduction**, with a required reason. This waives only the automatic adjustment; recorded lunch remains unchanged. **Restore automatic deduction** reverses a waiver with another audited reason. Every policy/waiver record preserves the administrator and timestamp. No actual lunch punches are fabricated or deleted by this feature.
 
 ## Employee setup
 
@@ -213,7 +230,9 @@ Browser interaction testing and real mobile GPS permission checks must be comple
 
 - `src/main.tsx`, `src/style.css`: responsive employee and manager UI.
 - `server/app.ts`: protected API, time punches, employee administration, corrections, exports.
-- `server/time.ts`: DST-safe interval allocation and weekly calculations.
+- `server/time.ts`: DST-safe interval allocation, automatic lunch and weekly calculations.
+- `server/lunch.ts`: prospective policy history and audited per-shift waivers.
+- `migrations/003-auto-lunch.sql`: automatic lunch policy and exception records.
 - `server/security.ts`: Argon2id, PIN HMAC, sessions helpers, rate limits, ephemeral geofence checks.
 - `server/schema.sql`: original PostgreSQL schema; `migrations/002-location.sql`: additive location/device/review migration.
 - `server/location.ts`: server geofence punch workflow, registered devices, provisional attempts and audited reviews.

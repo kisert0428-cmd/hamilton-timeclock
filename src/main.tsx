@@ -557,6 +557,7 @@ function App() {
                               ))}
                               <th>Regular</th>
                               <th>Overtime</th>
+                              <th>Auto lunch</th>
                               <th>Total</th>
                               <th>Review</th>
                             </tr>
@@ -580,10 +581,20 @@ function App() {
                                 {e.days.map((d: any) => (
                                   <td key={d.date}>
                                     {hours(d.seconds / 3600)}
+                                    {d.autoLunch > 0 && (
+                                      <small
+                                        className="muted"
+                                        style={{ display: "block" }}
+                                      >
+                                        {Math.round(d.autoLunch / 60)} min auto
+                                        lunch
+                                      </small>
+                                    )}
                                   </td>
                                 ))}
                                 <td>{hours(e.regular)}</td>
                                 <td>{hours(e.overtime)}</td>
+                                <td>{hours(e.automaticLunch)} h</td>
                                 <td>
                                   <strong>{hours(e.total)}</strong>
                                 </td>
@@ -606,8 +617,10 @@ function App() {
                         />
                       )}
                       <div className="card-foot">
-                        Unpaid recorded lunches are excluded. Open intervals are
-                        excluded and flagged for review.
+                        Hours are payable hours after recorded and automatic
+                        unpaid lunch. Automatic adjustments are shown
+                        separately. Open shifts are flagged and receive no
+                        automatic deduction.
                       </div>
                     </section>
                   )}
@@ -1592,6 +1605,72 @@ function Corrections({ employee, onSave }: any) {
           {message}
         </p>
       )}
+      {data?.lunchShifts?.some(
+        (s: any) => s.scheduledAutomaticLunchSeconds > 0,
+      ) && (
+        <section>
+          <h3>Automatic lunch adjustments</h3>
+          <p>
+            Remove the automatic adjustment if the employee worked through
+            lunch. Recorded lunch punches remain unchanged.
+          </p>
+          {data.lunchShifts
+            .filter((s: any) => s.scheduledAutomaticLunchSeconds > 0)
+            .map((s: any) => (
+              <form
+                key={s.punches[0].id}
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const b = Object.fromEntries(new FormData(e.currentTarget));
+                  setBusy(true);
+                  try {
+                    await send("/lunch-exceptions", {
+                      clock_in_id: s.punches[0].id,
+                      waived: !s.lunchWaived,
+                      reason: b.reason,
+                    });
+                    reload();
+                    onSave();
+                    setMessage(
+                      "Lunch adjustment updated with an audit record.",
+                    );
+                  } catch (e: any) {
+                    setMessage(e.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <p>
+                  <strong>
+                    {new Date(s.punches[0].at).toLocaleString("en-US", {
+                      timeZone: zone,
+                    })}
+                  </strong>
+                  <br />
+                  {Math.round(s.automaticLunchSeconds / 60)} minutes
+                  automatically deducted ·{" "}
+                  {s.lunchWaived ? "Manager waiver active" : "Policy applied"}
+                </p>
+                <label>
+                  Reason
+                  <textarea
+                    name="reason"
+                    required
+                    minLength={5}
+                    maxLength={1000}
+                    placeholder="Document why this employee worked through lunch or why the deduction is restored"
+                  />
+                </label>
+                <button className="secondary" disabled={busy}>
+                  {s.lunchWaived
+                    ? "Restore automatic deduction"
+                    : "Remove automatic deduction"}
+                </button>
+              </form>
+            ))}
+        </section>
+      )}
       <details>
         <summary>Punch records & audit history</summary>
         <div className="audit-list">
@@ -1604,6 +1683,19 @@ function Corrections({ employee, onSave }: any) {
                 {p.review_decision || "Not reviewed"}
               </small>
               {p.reason && <small>Added by manager: {p.reason}</small>}
+            </p>
+          ))}
+          {data?.lunchAudit?.map((a: any) => (
+            <p key={a.id}>
+              <strong>
+                {a.waived
+                  ? "Automatic lunch waived"
+                  : "Automatic lunch restored"}
+              </strong>
+              <small>{a.reason}</small>
+              <small>
+                {a.email} · {new Date(a.at).toISOString()}
+              </small>
             </p>
           ))}
           {data?.audit.map((a: any) => (
@@ -1819,6 +1911,91 @@ function LocationReviews({ data, onSave }: any) {
     </>
   );
 }
+function LunchPolicySettings({ onSave, notify }: any) {
+  const [data, setData] = useState<any>(null),
+    [enabled, setEnabled] = useState(false),
+    [busy, setBusy] = useState(false);
+  const load = () =>
+    api("/lunch-policy")
+      .then((d) => {
+        setData(d);
+        setEnabled(d.policies[0]?.enabled ?? false);
+      })
+      .catch((e) => notify(e.message));
+  useEffect(() => {
+    load();
+  }, []);
+  if (!data) return <p>Loading lunch policy…</p>;
+  return (
+    <section>
+      <h3>Automatic 30-minute lunch</h3>
+      <p>
+        Completed shifts of at least 6 hours receive at least 30 minutes of
+        total unpaid lunch. Recorded lunch counts toward that amount. Open and
+        shorter shifts receive no automatic deduction. New policy changes apply
+        to shifts clocked in afterward; past policies are retained.
+      </p>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const body = Object.fromEntries(new FormData(e.currentTarget));
+          setBusy(true);
+          try {
+            await send(
+              "/lunch-policy",
+              { enabled, reason: body.reason },
+              "PUT",
+            );
+            load();
+            onSave();
+            notify("Lunch policy saved for new shifts.");
+          } catch (e: any) {
+            notify(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Automatically deduct 30 minutes on completed shifts of 6+ hours
+        </label>
+        <label>
+          Policy change reason
+          <textarea
+            name="reason"
+            minLength={5}
+            maxLength={1000}
+            required
+            placeholder="Document the reason for this policy change"
+          />
+        </label>
+        <button className="secondary" disabled={busy}>
+          Save lunch policy
+        </button>
+      </form>
+      <details>
+        <summary>Lunch policy history</summary>
+        {data.policies.map((p: any) => (
+          <p key={p.id}>
+            {p.enabled ? "Enabled" : "Disabled"} from{" "}
+            {new Date(p.effective_at).toLocaleString("en-US", {
+              timeZone: zone,
+            })}{" "}
+            Eastern · {p.email || "Requested deployment policy"}
+            <br />
+            {p.reason}
+          </p>
+        ))}
+      </details>
+      <div className="setting-divider" />
+    </section>
+  );
+}
 function SettingsForm({ initial, onSave, notify }: any) {
   const [busy, setBusy] = useState(false);
   const [kiosks, setKiosks] = useState<any[]>([]);
@@ -1832,7 +2009,8 @@ function SettingsForm({ initial, onSave, notify }: any) {
   return (
     <section className="card settings-card">
       <h2>Warehouse settings</h2>
-      <p>Policies apply to all employee timesheets.</p>
+      <p>Manage payroll policies and warehouse access.</p>
+      <LunchPolicySettings onSave={onSave} notify={notify} />
       <form
         onSubmit={async (e) => {
           e.preventDefault();
